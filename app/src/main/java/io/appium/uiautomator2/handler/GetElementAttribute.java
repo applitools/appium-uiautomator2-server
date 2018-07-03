@@ -5,22 +5,23 @@ import android.support.test.uiautomator.By;
 import android.support.test.uiautomator.UiObject;
 import android.support.test.uiautomator.UiObject2;
 import android.support.test.uiautomator.UiObjectNotFoundException;
+import android.support.test.uiautomator.UiSelector;
+import android.support.test.uiautomator.Until;
 import android.view.accessibility.AccessibilityNodeInfo;
 
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.InvalidClassException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Arrays;
+import java.util.List;
 
 import io.appium.uiautomator2.common.exceptions.NoAttributeFoundException;
 import io.appium.uiautomator2.common.exceptions.UiAutomator2Exception;
 import io.appium.uiautomator2.core.AccessibilityNodeInfoGetter;
 import io.appium.uiautomator2.core.EventRegister;
 import io.appium.uiautomator2.core.ReturningRunnable;
-import io.appium.uiautomator2.core.UiObjectChildGenerator;
 import io.appium.uiautomator2.handler.request.SafeRequestHandler;
 import io.appium.uiautomator2.http.AppiumResponse;
 import io.appium.uiautomator2.http.IHttpRequest;
@@ -31,6 +32,7 @@ import io.appium.uiautomator2.model.KnownElements;
 import io.appium.uiautomator2.model.Session;
 import io.appium.uiautomator2.model.UiObject2Element;
 import io.appium.uiautomator2.server.WDStatus;
+import io.appium.uiautomator2.utils.Device;
 import io.appium.uiautomator2.utils.Logger;
 
 import static io.appium.uiautomator2.utils.Device.getUiDevice;
@@ -117,70 +119,37 @@ public class GetElementAttribute extends SafeRequestHandler {
             throw new UiAutomator2Exception("Did not get either scrollY or itemCount from accessibility scroll data");
         }
 
-        return getScrollableOffsetByItemCount(uiScrollable, lastScrollData.getItemCount());
+        return getScrollableOffsetByHiddenView();
     }
 
-    private static int getScrollableOffsetByItemCount(AndroidElement uiScrollable, int itemCount) {
-        Logger.debug("Figuring out scrollableOffset via item count of " + itemCount);
-        Object scrollObject = uiScrollable.getUiObject();
-        Rect scrollBounds = getElementBoundsInScreen(uiScrollable);
+    private static int getScrollableOffsetByHiddenView() {
+        Logger.debug("Figuring out scrollableOffset via hidden offset view");
 
-        // here we loop through the children and get their bounds until the height differs, then
-        // regardless of whether we have a list or a grid, we'll know the height of an item/row
+        // here we get the hidden view from main layout that call some logic to calculate scrollable offset
+        // for ListView, GridView and RecyclerView
         try {
-            int itemsPerRow = 0;
-            int rowHeight = 0;
-            int lastExaminedItemY = Integer.MIN_VALUE; // initialize to something impossibly negative
-            int numRowsExamined = 0;
-            int numRowsToExamine = 3; // examine a few rows since the top ones often have bad offsets
-            Object lastExaminedItem = null;
+            int totalItemsHeight = 0;
 
-            UiObjectChildGenerator gen = new UiObjectChildGenerator(scrollObject);
-            for (Object item : gen) {
-                if (item == null) {
-                    throw new UiObjectNotFoundException("Could not get child of scrollview");
-                }
+            List<UiObject2> uiObject2List = Device.getUiDevice().wait(Until.findObjects(By.descContains("HiddenOffsetView")), 2000);
 
-                Rect itemBounds = getElementBoundsInScreen(item);
+            Logger.debug("Found " + uiObject2List.size() + " hidden views");
 
-                ++itemsPerRow;
-                lastExaminedItem = item;
+            if (uiObject2List.size() > 0) {
+                UiObject2 uiObject2 = uiObject2List.get(0);
+                uiObject2.click();
+                uiObject2.wait(Until.textContains("offset"), 2000);
+                String textFromView = uiObject2.getText();
 
-                if (lastExaminedItemY != Integer.MIN_VALUE && itemBounds.top > lastExaminedItemY) {
-                    ++numRowsExamined;
-                    rowHeight = itemBounds.top - lastExaminedItemY;
-                    if (numRowsExamined >= numRowsToExamine) {
-                        break;
-                    }
-                    // reset itemsPerRow as we examine another row; don't want it to overaccumulate
-                    itemsPerRow = 0;
-                }
-
-                lastExaminedItemY = itemBounds.top;
+                totalItemsHeight = Integer.valueOf(textFromView.replace("offset=", ""));
             }
 
-            if (lastExaminedItem == null) {
-                throw new UiObjectNotFoundException("Could not find any children of the scrollview to get offset from");
-            }
-            Logger.debug("Determined there were " + itemsPerRow + " items per row");
-
-            int numRows = (int) Math.floor(itemCount / itemsPerRow);
-            if (itemCount % itemsPerRow > 0) {
-                // we might have an additional part-row
-                ++numRows;
-            }
-            int totalHeight = numRows * rowHeight;
-            int scrollableOffset = totalHeight - scrollBounds.height();
-            Logger.debug("Determined there were " + numRows + " rows of height " +
-                    rowHeight + ", for a total height of " + totalHeight + " and scroll offset " +
-                    "of " + scrollableOffset);
-            return scrollableOffset;
-        } catch (UiObjectNotFoundException ignore) {
-        } catch (InvalidClassException e) {
-            Logger.error("Programming error, tried to build a UiObjectChildGenerator with wrong type");
+            Logger.debug("Total items height - " + totalItemsHeight);
+            return totalItemsHeight;
+        } catch (Exception ignore) {
+            Logger.error("Programming error", ignore);
         }
 
-        // there were no child items we could find, so assume no offset
+        // there was some error while getting hidden view from main layout
         return 0;
     }
 
