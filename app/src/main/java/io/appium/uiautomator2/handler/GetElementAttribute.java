@@ -56,11 +56,11 @@ public class GetElementAttribute extends SafeRequestHandler {
     public static String getElementAttributeValue(AndroidElement element, String attributeName) throws NoAttributeFoundException, UiObjectNotFoundException, ReflectiveOperationException {
         if (Arrays.asList("name", "contentDescription", "text", "className", "resourceId").contains(attributeName)) {
             return element.getStringAttribute(attributeName);
-        } else if ("contentSize".equals(attributeName)) {
+        } else if (attributeName != null && attributeName.contains("contentSize")) {
             Rect boundsRect = element.getBounds();
             ContentSize contentSize = new ContentSize(boundsRect);
             contentSize.touchPadding = getTouchPadding(element);
-            contentSize.scrollableOffset = getScrollableOffset(element);
+            contentSize.scrollableOffset = getScrollableOffset(element, getContentDescription(attributeName));
             return contentSize.toString();
         } else {
             Boolean boolAttribute = element.getBoolAttribute(attributeName);
@@ -70,7 +70,7 @@ public class GetElementAttribute extends SafeRequestHandler {
         }
     }
 
-    private static int getScrollableOffset(AndroidElement uiScrollable) {
+    private static int getScrollableOffset(AndroidElement uiScrollable, String contentDescription) {
         // get the bounds of the scrollable view
         Rect bounds = getElementBoundsInScreen(uiScrollable);
 
@@ -120,15 +120,17 @@ public class GetElementAttribute extends SafeRequestHandler {
             throw new UiAutomator2Exception("Did not get either scrollY or itemCount from accessibility scroll data");
         }
 
-        return getScrollableOffsetByItemCount(uiScrollable, lastScrollData.getItemCount());
+        return getScrollableOffsetByItemCount(uiScrollable, lastScrollData.getItemCount(), contentDescription);
     }
 
-    private static int getScrollableOffsetByItemCount(AndroidElement uiScrollable, int itemCount) {
-        Logger.debug("Try to find EyesAppiumHelper view and get scrollable offset");
-        List<UiObject2> uiObject2List = Device.getUiDevice().wait(Until.findObjects(By.descContains("EyesAppiumHelper")), 2000);
-        Logger.debug("Found " + (uiObject2List != null ? uiObject2List.size() : 0) + " hidden views");
-        if (uiObject2List != null && uiObject2List.size() > 0) {
-            return getScrollableOffsetByHiddenView(uiObject2List.get(0));
+    private static int getScrollableOffsetByItemCount(AndroidElement uiScrollable, int itemCount, String contentDescription) {
+        if (contentDescription != null) {
+            Logger.debug("Try to find Helper view and get scrollable offset by contentDescription = " + contentDescription);
+            List<UiObject2> uiObject2List = Device.getUiDevice().wait(Until.findObjects(By.descContains(contentDescription)), 2000);
+            Logger.debug("Found " + (uiObject2List != null ? uiObject2List.size() : 0) + " helper views");
+            if (uiObject2List != null && uiObject2List.size() > 0) {
+                return getScrollableOffsetByHiddenView(uiObject2List.get(0));
+            }
         }
 
         Logger.debug("Figuring out scrollableOffset via item count of " + itemCount);
@@ -266,6 +268,11 @@ public class GetElementAttribute extends SafeRequestHandler {
         int touchPadding = (int) getScaledPagingTouchSlopMethod.invoke(viewConfigObject);
 
         return touchPadding / 2;
+    }
+
+    private static String getContentDescription(String attributeName) {
+        String[] splittedString = attributeName.split(":");
+        return splittedString.length >= 2 ? splittedString[1] : null;
     }
 
     @Override
